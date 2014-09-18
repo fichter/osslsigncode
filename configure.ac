@@ -1,6 +1,6 @@
 AC_PREREQ(2.60)
 
-AC_INIT([osslsigncode], [1.4], [mfive@users.sourceforge.net])
+AC_INIT([osslsigncode], [1.5.1], [pallansson@gmail.com])
 AC_CONFIG_AUX_DIR([.])
 AC_CONFIG_HEADERS([config.h])
 AM_INIT_AUTOMAKE
@@ -67,6 +67,20 @@ AC_CHECK_LIB(
 	[dlopen],
 	[DL_LIBS="-ldl"]
 )
+
+AC_ARG_WITH([gsf],
+        AS_HELP_STRING([--without-gsf], [Ignore presence of libgsf and disable it])
+)
+AS_IF([test "x$with_gsf" != "xno"],
+        [PKG_CHECK_MODULES([GSF], [libgsf-1], [have_gsf=yes], [have_gsf=no])],
+        [have_gsf=no]
+)
+AS_IF([test "x$have_gsf" = "xyes"],
+        [AC_DEFINE([WITH_GSF], 1, [Have libgsf?])],
+        [AS_IF([test "x$with_gsf" = "xyes"],
+                [AC_MSG_ERROR([libgsf requested but not found])])]
+)
+
 
 PKG_CHECK_MODULES(
 	[OPENSSL],
