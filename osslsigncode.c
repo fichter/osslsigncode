@@ -31,7 +31,7 @@
    files in the program, then also delete it here.
 */
 
-static const char *rcsid = "$Id: osslsigncode.c,v 1.7 2014/07/10 14:14:14 mfive Exp $";
+static const char *rcsid = "$Id: osslsigncode.c,v 1.7.1 2014/07/11 14:14:14 mfive Exp $";
 
 /*
    Implemented with good help from:
@@ -765,7 +765,9 @@ static void usage(const char *argv0)
 			"\t\t[ -t <timestampurl> [ -t ... ] [ -p <proxy> ]]\n"
 			"\t\t[ -ts <timestampurl> [ -ts ... ] [ -p <proxy> ]]\n"
 #endif
-			"\t\t[ -nest ]\n"
+			"\t\t[ -nest ]\n\n"
+			"\t\tMSI specific:\n"
+			"\t\t[ -add-msi-dse ]\n\n"
 			"\t\t[ -in ] <infile> [-out ] <outfile>\n\n"
 			"\textract-signature [ -in ] <infile> [ -out ] <outfile>\n\n"
 			"\tremove-signature [ -in ] <infile> [ -out ] <outfile>\n\n"
@@ -1265,7 +1267,6 @@ static GSList *msi_sorted_infile_children(GsfInfile *infile)
 	return sorted;
 }
 
-#ifndef NO_MSI_DIGITALSIGNATUREEX
 /*
  * msi_prehash_utf16_name converts an UTF-8 representation of
  * an MSI filename to its on-disk UTF-16 representation and
@@ -1368,7 +1369,6 @@ static gboolean msi_prehash(GsfInfile *infile, gchar *dirname, BIO *hash)
 
 	return TRUE;
 }
-#endif
 
 /**
  * msi_handle_dir performs a direct copy of the input MSI file in infile to a new
@@ -1527,7 +1527,7 @@ static int msi_verify_pkcs7(PKCS7 *p7, GsfInfile *infile, unsigned char *exdata,
 	}
 
 #ifdef GSF_CAN_READ_MSI_METADATA
-	if (exsig && exdata) {
+	if (exdata) {
 		tohex(cexmdbuf, hexbuf, EVP_MD_size(md));
 		int exok = !memcmp(exdata, cexmdbuf, MIN(EVP_MD_size(md), exlen));
 		if (!exok) ret = 1;
@@ -1672,6 +1672,48 @@ out:
 	if (p7)
 		PKCS7_free(p7);
 
+	return ret;
+}
+
+static int msi_extract_dse(GsfInfile *infile, unsigned char **dsebuf, unsigned long *dselen, int *has_dse) {
+	GsfInput *exsig = NULL;
+	gchar decoded[0x40];
+	u_char *buf = NULL;
+	gsf_off_t size = 0;
+	int i, ret = 0;
+
+	for (i = 0; i < gsf_infile_num_children(infile); i++) {
+		GsfInput *child = gsf_infile_child_by_index(infile, i);
+		const guint8 *name = (const guint8*)gsf_input_name(child);
+		msi_decode(name, decoded);
+		if (!g_strcmp0(decoded, "\05MsiDigitalSignatureEx"))
+			exsig = child;
+	}
+	if (exsig == NULL) {
+		ret = 1;
+		goto out;
+	}
+
+	if (has_dse != NULL) {
+		*has_dse = 1;
+	}
+
+	size = gsf_input_remaining(exsig);
+
+	if (dselen != NULL) {
+		*dselen = (unsigned long) size;
+	}
+
+	if (dsebuf != NULL) {
+		buf = malloc(size);
+		if (gsf_input_read(exsig, size, buf) == NULL) {
+			ret = 1;
+			goto out;
+		}
+		*dsebuf = (unsigned char *) buf;
+	}
+
+out:
 	return ret;
 }
 
@@ -2252,6 +2294,7 @@ int main(int argc, char **argv)
 	char *turl[MAX_TS_SERVERS], *proxy = NULL, *tsurl[MAX_TS_SERVERS];
 #endif
 	int nest = 0;
+	int add_msi_dse = 0;
 	int nturl = 0, ntsurl = 0;
 	u_char *p = NULL;
 	int ret = 0, i, len = 0, jp = -1, pe32plus = 0, comm = 0, pagehash = 0;
@@ -2390,6 +2433,8 @@ int main(int argc, char **argv)
 #endif
 		} else if ((cmd == CMD_SIGN) && !strcmp(*argv, "-nest")) {
 			nest = 1;
+		} else if ((cmd == CMD_SIGN) && !strcmp(*argv, "-add-msi-dse")) {
+			add_msi_dse = 1;
 		} else if ((cmd == CMD_VERIFY) && !strcmp(*argv, "-require-leaf-hash")) {
 			if (--argc < 1) usage(argv0);
 			leafhash = (*++argv); 
@@ -2612,6 +2657,26 @@ int main(int argc, char **argv)
 			goto skip_signing;
 		} else if (cmd == CMD_SIGN) {
 			if (nest) {
+				// Perform a sanity check for the MsiDigitalSignatureEx section.
+				// If the file we're attempting to sign has an MsiDigitalSignatureEx
+				// section, we can't add a nested signature of a different MD type
+				// without breaking the initial signature.
+				{
+					unsigned long dselen = 0;
+					int has_dse = 0;
+					if (msi_extract_dse(ole, NULL, &dselen, &has_dse) != 0 && has_dse) {
+						DO_EXIT_0("Unable to extract MsiDigitalSigantureEx section.\n");
+					}
+					if (has_dse) {
+						int mdlen = EVP_MD_size(md);
+						if (dselen != (unsigned long)mdlen) {
+							DO_EXIT_0("Unable to add nested signature with a different MD type (-h parameter) "
+							          "than what exists in the MSI file already. This is due to the presence of "
+							          "MsiDigitalSigantureEx (-add-msi-dse parameter).\n");
+						}
+					}
+				}
+
 				cursig = msi_extract_signature_to_pkcs7(ole);
 				if (cursig == NULL) {
 					DO_EXIT_0("Unable to extract existing signature in -nest mode");
@@ -2624,7 +2689,6 @@ int main(int argc, char **argv)
 			DO_EXIT_1("Error opening output file %s", outfile);
 		outole = gsf_outfile_msole_new(sink);
 
-#ifndef NO_MSI_DIGITALSIGNATUREEX
 		/*
 		 * MsiDigitalSignatureEx is an enhanced signature type that
 		 * can be used when signing MSI files.  In addition to
@@ -2665,10 +2729,7 @@ int main(int argc, char **argv)
 		 * section, and its content must be the output of the pre-hash
 		 * ("metadata") hash.
 		 */
-		/*
-		 * Disabled for now. Does not work well with nested sigantures.
-		 */
-		if (0) {
+		if (add_msi_dse) {
 			BIO *prehash = BIO_new(BIO_f_md());
 			BIO_set_md(prehash, md);
 			BIO_push(prehash, BIO_new(BIO_s_null()));
@@ -2681,7 +2742,6 @@ int main(int argc, char **argv)
 
 			BIO_write(hash, p_msiex, len_msiex);
 		}
-#endif
 
 		if (!msi_handle_dir(ole, outole, hash)) {
 			DO_EXIT_0("unable to msi_handle_dir()\n");
