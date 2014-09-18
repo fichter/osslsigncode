@@ -1,0 +1,50 @@
+CC = @CC@
+CFLAGS = @CFLAGS@
+CPPFLAGS = @CPPFLAGS@ @DEFS@
+LDFLAGS = @LDFLAGS@ @LIBS@
+INSTALL = @INSTALL@
+EXEEXT = @EXEEXT@
+OBJEXT = @OBJEXT@
+PATH_SEPARATOR = @PATH_SEPARATOR@
+RELEASE = @PACKAGE_TARNAME@-@PACKAGE_VERSION@
+
+prefix = @prefix@
+mandir = @mandir@
+sysconfdir = @sysconfdir@
+datadir = @datadir@
+exec_prefix = @exec_prefix@
+bindir = @bindir@
+
+BINS = osslsigncode
+
+RELEASEFILES = CHANGES LICENSE README TODO Makefile.in aclocal.m4 compat.h \
+	configure configure.ac config.guess config.sub config.h.in \
+	getopt.c getopt.h install-sh osslsigncode.c win32.h
+
+LIBOBJS = @LIBOBJS@
+
+all: $(BINS)
+
+osslsigncode: osslsigncode.$(OBJEXT) $(LIBOBJS)
+	$(CC) -o osslsigncode$(EXEEXT) osslsigncode.$(OBJEXT) $(filter %.$(OBJEXT), $(LIBOBJS)) $(LDFLAGS)
+
+osslsigncode.$(OBJEXT): osslsigncode.c compat.h win32.h config.h
+
+.PHONY: clean distclean install release
+
+clean:
+	$(RM) *.$(OBJEXT) *.o $(BINS) *~
+
+distclean: clean
+	$(RM) Makefile config.h config.status config.log
+
+install: all
+	-$(INSTALL) -d $(bindir)
+	$(INSTALL) -m 755 osslsigncode$(EXEEXT) $(bindir)/osslsigncode$(EXEEXT)
+
+release:
+	-mkdir -p $(RELEASE)
+	md5sum $(RELEASEFILES) > MD5SUMS
+	cp -p $(RELEASEFILES) MD5SUMS $(RELEASE)
+	tar zcf $(RELEASE).tar.gz $(RELEASE)
+	$(RM) -r $(RELEASE)

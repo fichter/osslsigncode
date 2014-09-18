@@ -1,0 +1,12 @@
+- tool for extracting/removing the signature
+- separate timestamping
+- man page
+- verify signatures
+- remove mmap usage to increase portability
+- tests
+- calculate correct PE checksum instead of setting it to 0
+- reading key from PEM format, with/without password
+- proper unicode conversion for opus desc
+- fix other stuff marked 'XXX'
+- free memory properly :)
+- replace the asn1 binary blobs with proper asn1 definitions + code
