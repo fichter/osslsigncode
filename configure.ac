@@ -1,6 +1,6 @@
 AC_PREREQ(2.60)
 
-AC_INIT([osslsigncode], [1.5.2], [pallansson@gmail.com])
+AC_INIT([osslsigncode], [1.6], [pallansson@gmail.com])
 AC_CONFIG_AUX_DIR([.])
 AC_CONFIG_HEADERS([config.h])
 AM_INIT_AUTOMAKE
@@ -53,20 +53,29 @@ AC_HEADER_STDC
 AC_HEADER_TIME
 AC_CHECK_HEADERS(
 	[sys/mman.h],
-	,
-	[AC_MSG_ERROR([Need mmap to build.])]
+	[AC_CHECK_FUNC(
+		[mmap],
+		[AC_DEFINE(HAVE_MMAP, [1], [Define to 1 if you have mmap])],
+		[AC_MSG_ERROR([Need mmap to build.])]
+	)],
+	[have_mmap=no]
 )
-AC_CHECK_FUNC(
-	[mmap],
-	[AC_DEFINE(HAVE_MMAP, [1], [Define to 1 if you have mmap])],
-	[AC_MSG_ERROR([Need mmap to build.])]
+AC_CHECK_HEADERS(
+	[windows.h],
+	[],
+	[have_MapViewOfFile=no]
 )
+AS_IF([test "x$have_mmap$have_MapViewOfFile" = "xnono"],
+	[AC_MSG_ERROR([Need file mapping function to buid.])])
 
 AC_CHECK_LIB(
 	[dl],
 	[dlopen],
 	[DL_LIBS="-ldl"]
 )
+
+AC_CHECK_HEADERS([termios.h])
+AC_CHECK_FUNCS(getpass)
 
 AC_ARG_WITH([gsf],
         AS_HELP_STRING([--without-gsf], [Ignore presence of libgsf and disable it])
