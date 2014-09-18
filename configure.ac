@@ -1,41 +1,113 @@
-AC_REVISION(1.3)
-AC_INIT(osslsigncode, 1.3, mfive@users.sourceforge.net)
-AC_CONFIG_HEADER(config.h)
+AC_PREREQ(2.60)
 
-dnl Determine OS info (this changes how tests will come out, must be done first.)
-DC_CHK_OS_INFO
+AC_INIT([osslsigncode], [1.4], [mfive@users.sourceforge.net])
+AC_CONFIG_AUX_DIR([.])
+AC_CONFIG_HEADERS([config.h])
+AM_INIT_AUTOMAKE
+
+AC_CONFIG_SRCDIR([osslsigncode.c])
 
 dnl Checks for programs.
 AC_PROG_CC
+AC_USE_SYSTEM_EXTENSIONS
 
-dnl Use -Wall if we have gcc.
-dnl changequote(,)dnl
-if test "x$GCC" = xyes ; then
-  CFLAGS="$CFLAGS -Wall"
+AC_ARG_ENABLE(
+	[strict],
+	[AS_HELP_STRING([--enable-strict],[enable strict compile mode @<:@disabled@:>@])],
+	,
+	[enable_strict="no"]
+)
+
+AC_ARG_ENABLE(
+	[pedantic],
+	[AS_HELP_STRING([--enable-pedantic],[enable pedantic compile mode @<:@disabled@:>@])],
+	,
+	[enable_pedantic="no"]
+)
+
+AC_ARG_WITH(
+	[curl],
+	[AS_HELP_STRING([--with-curl],[enable curl @<:@enabled@:>@])],
+	,
+	[with_curl="yes"]
+)
+
+if test "${enable_pedantic}" = "yes"; then
+	enable_strict="yes";
+	CFLAGS="${CFLAGS} -pedantic"
 fi
-dnl changequote([,])dnl
+if test "${enable_strict}" = "yes"; then
+	CFLAGS="${CFLAGS} -Wall -Wextra"
+fi
 
-AC_PROG_MAKE_SET
+PKG_PROG_PKG_CONFIG
+AC_PROG_CPP
 AC_PROG_INSTALL
-AC_AIX
-AC_GNU_SOURCE
+AC_PROG_LN_S
+AC_PROG_MKDIR_P
+AC_PROG_SED
+AC_PROG_MAKE_SET
 
-AC_CHECK_HEADERS(getopt.h sys/mman.h)
+AC_C_CONST
+AC_HEADER_STDC
 AC_HEADER_TIME
+AC_CHECK_HEADERS(
+	[sys/mman.h],
+	,
+	[AC_MSG_ERROR([Need mmap to build.])]
+)
+AC_CHECK_FUNC(
+	[mmap],
+	[AC_DEFINE(HAVE_MMAP, [1], [Define to 1 if you have mmap])],
+	[AC_MSG_ERROR([Need mmap to build.])]
+)
 
-AC_REPLACE_FUNCS(getopt)
+AC_CHECK_LIB(
+	[dl],
+	[dlopen],
+	[DL_LIBS="-ldl"]
+)
 
-AC_CHECK_FUNC(mmap, AC_DEFINE(HAVE_MMAP,[1],[Define to 1 if you have mmap]), 
-                    AC_MSG_ERROR([Need mmap to build.]))
+PKG_CHECK_MODULES(
+	[OPENSSL],
+	[libcrypto >= 0.9.8],
+	,
+	[PKG_CHECK_MODULES(
+		[OPENSSL],
+		[openssl >= 0.9.8],
+		,
+		[AC_CHECK_LIB(
+			[crypto],
+			[RSA_verify],
+			[OPENSSL_LIBS="-lcrypto ${SOCKETS_LIBS} ${DL_LIBS}"],
+			[AC_MSG_ERROR([OpenSSL 0.9.8 or later is required. http://www.openssl.org/])],
+			[${DL_LIBS}]
+		)]
+	)]
+)
 
-dnl Require OpenSSL's libcrypto
-DC_ASK_OPTLIB(crypto, PKCS7_dataFinal, openssl/pkcs7.h, [         OpenSSL Support], openssl, HAVE_OPENSSL, HAVE_OPENSSL_H, [
-        AC_MSG_ERROR([OpenSSL is required. http://www.openssl.org/])
-])
+PKG_CHECK_MODULES(
+	[LIBCURL],
+	[libcurl >= 7.12.0],
+	,
+	[AC_CHECK_LIB(
+		[curl],
+		[curl_easy_strerror],
+		[LIBCURL_LIBS="-lcurl"],
+		,
+		[${DL_LIBS}]
+	)]
+)
 
-dnl Require Curl
-DC_ASK_OPTLIB(curl, curl_easy_strerror, curl/curl.h, [            Curl Support], curl, HAVE_CURL, HAVE_CURL_H, [
-        AC_MSG_WARN([Curl 7.12.0 or later is required for timestamping support. http://curl.haxx.se/])
-])
+if test "${with_curl}" = "yes"; then
+	test -z "${LIBCURL_LIBS}" && AC_MSG_ERROR([Curl 7.12.0 or later is required for timestamping support. http://curl.haxx.se/])
+	OPTIONAL_LIBCURL_CFLAGS="${LIBCURL_CFLAGS}"
+	OPTIONAL_LIBCURL_LIBS="${LIBCURL_LIBS}"
+	AC_DEFINE([ENABLE_CURL], [1], [libcurl is enabled])
+fi
 
-AC_OUTPUT(Makefile)
+AC_SUBST([OPTIONAL_LIBCURL_CFLAGS])
+AC_SUBST([OPTIONAL_LIBCURL_LIBS])
+
+AC_CONFIG_FILES([Makefile])
+AC_OUTPUT
